@@ -124,7 +124,7 @@ mutation CreatePost($input: CreatePostInput!) {
         status
       }
     }
-    ... on UserError {
+    ... on BasicError {
       message
     }
   }
@@ -138,7 +138,7 @@ variables = {
         "schedulingType": "automatic",
         "assets": {
             "images": [img_url]
-        } if img_url else {}
+        } if img_url else None
     }
 }
 
