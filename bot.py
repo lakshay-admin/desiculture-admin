@@ -153,45 +153,62 @@ ffmpeg_cmd = [
 ]
 subprocess.run(ffmpeg_cmd, check=True)
 
-# 6. Upload MP4 to Direct Video CDN
-print("Hosting Reel video file...")
+# 6. Upload MP4 to High-Speed GitHub Releases CDN (No rate-limits, Buffer friendly)
+print("Hosting Reel video file via GitHub CDN...")
+gh_token = os.environ.get("GITHUB_TOKEN")
+gh_repo = os.environ.get("GITHUB_REPOSITORY")
+
 reel_url = ""
 
-# Provider 1: tmpfiles.org direct stream
-try:
-    with open("final_reel.mp4", "rb") as vf:
-        up = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": ("desi_reel.mp4", vf, "video/mp4")}, timeout=45)
-    if up.status_code == 200:
-        raw_dl = up.json().get("data", {}).get("url", "")
-        reel_url = raw_dl.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-        print("Hosted via tmpfiles CDN:", reel_url)
-except Exception as e:
-    print("tmpfiles error:", e)
+if gh_token and gh_repo:
+    try:
+        tag_name = "latest-reel"
+        api_headers = {
+            "Authorization": f"Bearer {gh_token}",
+            "Accept": "application/vnd.github+json"
+        }
+        
+        # Check if release exists, delete previous if any to keep clean
+        rel_check = requests.get(f"https://api.github.com/repos/{gh_repo}/releases/tags/{tag_name}", headers=api_headers)
+        if rel_check.status_code == 200:
+            rel_id = rel_check.json().get("id")
+            requests.delete(f"https://api.github.com/repos/{gh_repo}/releases/{rel_id}", headers=api_headers)
+        
+        # Create new lightweight release
+        rel_create = requests.post(
+            f"https://api.github.com/repos/{gh_repo}/releases",
+            headers=api_headers,
+            json={"tag_name": tag_name, "name": "Latest Reel Asset", "draft": False, "prerelease": False}
+        ).json()
+        
+        upload_url = rel_create.get("upload_url", "").replace("{?name,label}", "?name=desi_reel.mp4")
+        
+        # Upload final_reel.mp4 directly as release asset
+        with open("final_reel.mp4", "rb") as vf:
+            up_res = requests.post(
+                upload_url,
+                headers={"Authorization": f"Bearer {gh_token}", "Content-Type": "video/mp4"},
+                data=vf
+            ).json()
+            
+        reel_url = up_res.get("browser_download_url", "")
+        print("GitHub CDN Reel URL:", reel_url)
+    except Exception as e:
+        print("GitHub release upload error:", e)
 
-# Provider 2: 0x0.st Minimalist Stream Host
-if not reel_url or not reel_url.startswith("http"):
+# Fallback: File.io direct if GH token fails
+if not reel_url:
     try:
         with open("final_reel.mp4", "rb") as vf:
-            up = requests.post("https://0x0.st", files={"file": ("desi_reel.mp4", vf, "video/mp4")}, timeout=45)
-        if up.status_code == 200 and up.text.startswith("http"):
-            reel_url = up.text.strip()
-            print("Hosted via 0x0 CDN:", reel_url)
+            fio = requests.post("https://file.io", files={"file": ("desi_reel.mp4", vf, "video/mp4")}, timeout=45)
+            if fio.status_code == 200:
+                reel_url = fio.json().get("link", "")
+                print("Fallback file.io URL:", reel_url)
     except Exception as e:
-        print("0x0 host error:", e)
-
-# Provider 3: filepush fallback
-if not reel_url or not reel_url.startswith("http"):
-    try:
-        with open("final_reel.mp4", "rb") as vf:
-            up = requests.post("https://filepush.co/upload", files={"files[]": ("desi_reel.mp4", vf, "video/mp4")}, timeout=45)
-        if up.status_code == 200:
-            reel_url = up.json().get("files", [{}])[0].get("url", "")
-            print("Hosted via filepush CDN:", reel_url)
-    except Exception as e:
-        print("filepush error:", e)
+        print("file.io error:", e)
 
 if not reel_url or not reel_url.startswith("http"):
-    raise Exception("Video hosting failed across all CDNs.")
+    raise Exception("Video hosting failed.")
 
 # 7. Post to Buffer as Reel
 graphql_url = "https://api.buffer.com"
