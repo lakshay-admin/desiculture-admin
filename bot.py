@@ -10,8 +10,8 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
 BUFFER_PROFILE_ID = os.environ.get("BUFFER_PROFILE_ID")
 
-# 2. Trending Worldwide News & Meme Prompt (Targeting gemini-3.0-flash)
-prompt = """
+# 2. Trending Worldwide News & Meme Prompt
+prompt_text = """
 You are a senior digital news editor for 'Desi Culture'.
 Find 1 trending viral news topic right now from across the WORLD or INDIA in one of these categories:
 - MOVIES / HOLLYWOOD / BOLLYWOOD / ANIME
@@ -29,22 +29,53 @@ Return raw JSON ONLY without markdown backticks:
 }
 """
 
-# Call gemini-3.0-flash on Google Generative Language API
-gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key={GEMINI_KEY}"
-payload = {
-    "contents": [{"parts": [{"text": prompt}]}],
-    "generationConfig": {"response_mime_type": "application/json"}
-}
+raw_text = ""
 
-res = requests.post(gemini_url, json=payload)
-print("Gemini Status Code:", res.status_code)
-res_json = res.json()
+# Method A: Try Interactions API (Google's latest format for 3.0 models)
+try:
+    interact_url = f"https://generativelanguage.googleapis.com/v1alpha/interactions?key={GEMINI_KEY}"
+    interact_payload = {
+        "model": "gemini-3.0-flash",
+        "input": prompt_text,
+        "response_mime_type": "application/json"
+    }
+    r = requests.post(interact_url, json=interact_payload, timeout=20)
+    print("Interactions API Status:", r.status_code)
+    if r.status_code == 200:
+        data = r.json()
+        raw_text = data.get("output", "") or data.get("text", "")
+except Exception as e:
+    print("Interactions API fallback trigger:", e)
 
-if "candidates" not in res_json:
-    print("API Error Response:", res_json)
-    raise Exception(f"Gemini API Error: {res_json}")
+# Method B: Fallback to dynamic listModels if Method A didn't populate raw_text
+if not raw_text:
+    models_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}").json()
+    available = [
+        m["name"] for m in models_res.get("models", [])
+        if "generateContent" in m.get("supportedGenerationMethods", [])
+    ]
+    print("Available models in account:", available)
+    
+    # Try each available model until one succeeds
+    for m_name in available:
+        clean_name = m_name.replace("models/", "")
+        gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_name}:generateContent?key={GEMINI_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}],
+            "generationConfig": {"response_mime_type": "application/json"}
+        }
+        res = requests.post(gen_url, json=payload)
+        if res.status_code == 200:
+            res_json = res.json()
+            if "candidates" in res_json:
+                raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
+                print(f"Successfully generated using: {clean_name}")
+                break
 
-raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
+if not raw_text:
+    raise Exception("Could not generate content from any Gemini endpoint. Check API key permissions.")
+
+# Clean JSON
 if "```json" in raw_text:
     raw_text = raw_text.split("```json")[1].split("```")[0].strip()
 elif "```" in raw_text:
@@ -59,7 +90,7 @@ caption = news.get("caption", "")
 full_caption = f"🚨 {headline}\n\n{caption}"
 print("\n--- GENERATED POST ---\n", full_caption)
 
-# 3. Canvas Setup (4:5 Ratio - 1080x1350 px)
+# 3. Vertical 4:5 Poster Design (1080x1350 px)
 canvas = Image.new("RGB", (1080, 1350), color=(15, 17, 23))
 
 # Fetch background photo
