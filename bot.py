@@ -153,20 +153,45 @@ ffmpeg_cmd = [
 ]
 subprocess.run(ffmpeg_cmd, check=True)
 
-# 6. Upload MP4 to Direct Stream CDN (Catbox)
+# 6. Upload MP4 to Direct Video CDN
 print("Hosting Reel video file...")
-with open("final_reel.mp4", "rb") as vf:
-    upload = requests.post(
-        "https://catbox.moe/user/api.php",
-        data={"reqtype": "fileupload"},
-        files={"fileToUpload": ("desi_reel.mp4", vf, "video/mp4")},
-        timeout=60
-    )
+reel_url = ""
 
-reel_url = upload.text.strip()
-print("Direct Hosted Reel URL:", reel_url)
-if not reel_url.startswith("http"):
-    raise Exception("Video hosting failed: " + reel_url)
+# Provider 1: tmpfiles.org direct stream
+try:
+    with open("final_reel.mp4", "rb") as vf:
+        up = requests.post("https://tmpfiles.org/api/v1/upload", files={"file": ("desi_reel.mp4", vf, "video/mp4")}, timeout=45)
+    if up.status_code == 200:
+        raw_dl = up.json().get("data", {}).get("url", "")
+        reel_url = raw_dl.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+        print("Hosted via tmpfiles CDN:", reel_url)
+except Exception as e:
+    print("tmpfiles error:", e)
+
+# Provider 2: 0x0.st Minimalist Stream Host
+if not reel_url or not reel_url.startswith("http"):
+    try:
+        with open("final_reel.mp4", "rb") as vf:
+            up = requests.post("https://0x0.st", files={"file": ("desi_reel.mp4", vf, "video/mp4")}, timeout=45)
+        if up.status_code == 200 and up.text.startswith("http"):
+            reel_url = up.text.strip()
+            print("Hosted via 0x0 CDN:", reel_url)
+    except Exception as e:
+        print("0x0 host error:", e)
+
+# Provider 3: filepush fallback
+if not reel_url or not reel_url.startswith("http"):
+    try:
+        with open("final_reel.mp4", "rb") as vf:
+            up = requests.post("https://filepush.co/upload", files={"files[]": ("desi_reel.mp4", vf, "video/mp4")}, timeout=45)
+        if up.status_code == 200:
+            reel_url = up.json().get("files", [{}])[0].get("url", "")
+            print("Hosted via filepush CDN:", reel_url)
+    except Exception as e:
+        print("filepush error:", e)
+
+if not reel_url or not reel_url.startswith("http"):
+    raise Exception("Video hosting failed across all CDNs.")
 
 # 7. Post to Buffer as Reel
 graphql_url = "https://api.buffer.com"
