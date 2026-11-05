@@ -10,7 +10,17 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
 BUFFER_PROFILE_ID = os.environ.get("BUFFER_PROFILE_ID")
 
-# 2. Trending Worldwide News & Meme Prompt
+# 2. Dynamic Model Selection with safe fallback
+models_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}").json()
+available = [
+    m["name"].replace("models/", "") for m in models_res.get("models", [])
+    if "generateContent" in m.get("supportedGenerationMethods", [])
+]
+print("Available models:", available)
+
+# Prioritize flash models, then any available
+chosen_models = [m for m in available if "flash" in m.lower()] + available
+
 prompt_text = """
 You are a senior digital news editor for 'Desi Culture'.
 Find 1 trending viral news topic right now from across the WORLD or INDIA in one of these categories:
@@ -29,14 +39,26 @@ Return raw JSON ONLY without markdown backticks:
 }
 """
 
-gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={GEMINI_KEY}"
-payload = {
-    "contents": [{"parts": [{"text": prompt_text}]}],
-    "generationConfig": {"response_mime_type": "application/json"}
-}
+raw_text = ""
+for model in chosen_models:
+    try:
+        gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}],
+            "generationConfig": {"response_mime_type": "application/json"}
+        }
+        res = requests.post(gen_url, json=payload, timeout=25).json()
+        if "candidates" in res and res["candidates"]:
+            raw_text = res["candidates"][0]["content"]["parts"][0]["text"]
+            print(f"Successfully generated using model: {model}")
+            break
+        else:
+            print(f"Model {model} returned no candidates: {res}")
+    except Exception as e:
+        print(f"Attempt with {model} failed:", e)
 
-res = requests.post(gen_url, json=payload).json()
-raw_text = res["candidates"][0]["content"]["parts"][0]["text"]
+if not raw_text:
+    raise Exception("Could not generate content from any available Gemini model.")
 
 if "```json" in raw_text:
     raw_text = raw_text.split("```json")[1].split("```")[0].strip()
