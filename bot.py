@@ -162,7 +162,8 @@ variables = {
         "schedulingType": "automatic",
         "metadata": {
             "instagram": {
-                "type": "post"
+                "type": "post",
+                "shouldShareToFeed": True
             }
         },
         "assets": {
