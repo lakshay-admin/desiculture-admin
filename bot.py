@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 import textwrap
 import requests
 from io import BytesIO
@@ -8,53 +9,24 @@ from PIL import Image, ImageDraw
 # 1. Credentials
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
+RAW_PROFILE_ID = os.environ.get("BUFFER_PROFILE_ID", "").strip()
+
 GRAPHQL_URL = "https://api.buffer.com"
 HEADERS = {
     "Authorization": f"Bearer {BUFFER_TOKEN}",
     "Content-Type": "application/json"
 }
 
-# 2. Get Real GraphQL Channel ID Automatically
-channels_query = """
-query GetChannels {
-  account {
-    organizations {
-      channels {
-        id
-        name
-        service
-      }
-    }
-  }
-}
-"""
+# Format channel ID correctly for Buffer GraphQL
+# If it's a 24-character mongo/hex ID, Buffer GraphQL expects base64 or prefixed format
+if RAW_PROFILE_ID and not RAW_PROFILE_ID.startswith("Channel:"):
+    channel_id = base64.b64encode(f"Channel:{RAW_PROFILE_ID}".encode()).decode()
+else:
+    channel_id = RAW_PROFILE_ID
 
-ch_res = requests.post(
-    GRAPHQL_URL,
-    headers=HEADERS,
-    json={"query": channels_query}
-).json()
+print(f"Using Channel ID: {channel_id} (from raw: {RAW_PROFILE_ID})")
 
-all_channels = []
-try:
-    orgs = ch_res.get("data", {}).get("account", {}).get("organizations", [])
-    for org in orgs:
-        for ch in org.get("channels", []):
-            all_channels.append(ch)
-except Exception as e:
-    print("Channel parse exception:", e)
-
-print("Found Buffer Channels:", [(c.get("id"), c.get("name"), c.get("service")) for c in all_channels])
-
-if not all_channels:
-    raise Exception(f"No channels found in Buffer account. API response: {ch_res}")
-
-# Prefer instagram channel, else first channel
-selected_channel = next((c for c in all_channels if c.get("service") == "instagram"), all_channels[0])
-channel_id = selected_channel["id"]
-print(f"Targeting Channel: {selected_channel.get('name')} ({selected_channel.get('service')}) with ID: {channel_id}")
-
-# 3. Dynamic Model Selection with safe fallback
+# 2. Dynamic Model Selection with safe fallback
 models_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}").json()
 available = [
     m["name"].replace("models/", "") for m in models_res.get("models", [])
@@ -119,7 +91,7 @@ caption = str(news.get("caption", ""))
 full_caption = f"🚨 {headline}\n\n{caption}"
 print("\n--- GENERATED POST ---\n", full_caption)
 
-# 4. Vertical 4:5 Poster Design (1080x1350 px)
+# 3. Vertical 4:5 Poster Design (1080x1350 px)
 canvas = Image.new("RGB", (1080, 1350), color=(15, 17, 23))
 
 try:
@@ -157,7 +129,7 @@ draw.line([(70, 1240), (1010, 1240)], fill=(38, 42, 53), width=2)
 draw.text((70, 1265), "@thedesiculture.in", fill=(245, 158, 11))
 draw.text((810, 1265), "GLOBAL CULTURE", fill=(120, 125, 140))
 
-# 5. Image Hosting
+# 4. Image Hosting
 img_bytes = BytesIO()
 canvas.save(img_bytes, format="JPEG", quality=92)
 img_bytes.seek(0)
@@ -175,7 +147,7 @@ try:
 except Exception as e:
     print("Hosting error:", e)
 
-# 6. Publish via GraphQL
+# 5. Buffer GraphQL API Call
 mutation = """
 mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
