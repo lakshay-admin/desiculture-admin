@@ -60,20 +60,39 @@ caption = str(news.get("caption", ""))
 full_caption = f"🚨 {headline}\n\n{caption}"
 print("\n--- REEL CAPTION ---\n", full_caption)
 
-# 3. Download Vertical Royalty-Free Video Footage
-VIDEO_FEEDS = [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"
+# 3. Reliable Video Sourcing with Fallback Generation
+video_sources = [
+    "https://cdn.pixabay.com/video/2020/05/25/40149-425265564_tiny.mp4",
+    "https://cdn.pixabay.com/video/2021/04/12/70868-536417757_tiny.mp4",
+    "https://cdn.pixabay.com/video/2022/10/25/136440-764953930_tiny.mp4"
 ]
-selected_video_url = random.choice(VIDEO_FEEDS)
 
-print("Downloading base footage...")
-v_resp = requests.get(selected_video_url, timeout=30)
-with open("raw_video.mp4", "wb") as f:
-    f.write(v_resp.content)
+download_success = False
+for vurl in video_sources:
+    try:
+        r = requests.get(vurl, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        if r.status_code == 200 and len(r.content) > 100000:
+            with open("raw_video.mp4", "wb") as f:
+                f.write(r.content)
+            download_success = True
+            print(f"Downloaded footage successfully ({len(r.content)} bytes)")
+            break
+    except Exception as e:
+        print("Footage mirror failed:", e)
 
-# 4. Generate 9:16 Transparent Lower-Third Overlay Card (1080x1920)
+# Built-in generator fallback agar saare network links down hon
+if not download_success or not os.path.exists("raw_video.mp4") or os.path.getsize("raw_video.mp4") < 50000:
+    print("Generating pure 9:16 background loop via FFmpeg...")
+    fallback_gen = [
+        "ffmpeg", "-y", "-f", "lavfi",
+        "-i", "color=c=0x0a0c10:s=1080x1920:d=7:r=24",
+        "-f", "lavfi",
+        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-t", "7", "-c:v", "libx264", "-c:a", "aac", "raw_video.mp4"
+    ]
+    subprocess.run(fallback_gen, check=True)
+
+# 4. Generate 9:16 Transparent Overlay Card (1080x1920)
 overlay = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
 draw = ImageDraw.Draw(overlay)
 
@@ -91,7 +110,6 @@ font_head = get_font(44, bold=True)
 font_sub = get_font(28, bold=False)
 font_brand = get_font(30, bold=True)
 
-# Build text banner blocks (fact.of.indian style)
 lines = textwrap.wrap(headline, width=28)
 card_y = 1220
 line_height = 62
@@ -101,28 +119,23 @@ for line in lines[:3]:
     draw.text((80, card_y + 8), line, fill=(255, 255, 255), font=font_head)
     card_y += line_height + 10
 
-# Subtext
 draw.text((60, card_y + 15), subtext, fill=(240, 240, 240, 240), font=font_sub)
 
-# Branding & Social Icons Bar
 brand_y = card_y + 85
 draw.text((60, brand_y), "@THEDESICULTURE.IN", fill=(255, 255, 255, 255), font=font_brand)
 
 def draw_icons(d, x, y):
-    # Instagram
     d.rounded_rectangle([(x, y), (x+36, y+36)], radius=8, outline=(255, 255, 255), width=3)
     d.ellipse([(x+10, y+10), (x+26, y+26)], outline=(255, 255, 255), width=3)
-    # X
     d.line([(x+55, y), (x+85, y+36)], fill=(255, 255, 255), width=3)
     d.line([(x+85, y), (x+55, y+36)], fill=(255, 255, 255), width=3)
-    # Facebook
     d.ellipse([(x+105, y), (x+141, y+36)], outline=(255, 255, 255), width=3)
     d.text((x+118, y+5), "f", fill=(255, 255, 255), font=font_brand)
 
 draw_icons(draw, 840, brand_y - 5)
 overlay.save("overlay.png")
 
-# 5. Fast Direct FFmpeg Composite (Crops to 1080x1920 9:16 and overlays PNG)
+# 5. Composite Reel via FFmpeg
 print("Rendering Reel via FFmpeg...")
 ffmpeg_cmd = [
     "ffmpeg", "-y",
@@ -132,16 +145,15 @@ ffmpeg_cmd = [
     "-filter_complex",
     "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v0];[v0][1:v]overlay=0:0[outv]",
     "-map", "[outv]",
-    "-map", "0:a?",
     "-c:v", "libx264",
     "-preset", "ultrafast",
     "-pix_fmt", "yuv420p",
-    "-c:a", "aac",
+    "-an",
     "final_reel.mp4"
 ]
 subprocess.run(ffmpeg_cmd, check=True)
 
-# 6. Upload MP4 to Direct CDN
+# 6. Upload MP4 to Direct Stream CDN (Catbox)
 print("Hosting Reel video file...")
 with open("final_reel.mp4", "rb") as vf:
     upload = requests.post(
