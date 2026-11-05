@@ -2,7 +2,6 @@ name: Desi Culture Auto Poster
 
 on:
   schedule:
-    # Rozana 3 fixed posting slots
     - cron: '0 8 * * *'    # 1:30 PM IST
     - cron: '30 12 * * *'  # 6:00 PM IST
     - cron: '30 16 * * *'  # 10:00 PM IST
@@ -28,7 +27,7 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          pip install requests pillow moviepy
+          pip install requests pillow
 
       - name: Run Poster Script
         env:
