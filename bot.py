@@ -1,17 +1,17 @@
 import os
 import json
 import requests
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
-# 1. API Keys environment variables se read karna
+# 1. API Keys
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
 BUFFER_PROFILE_ID = os.environ.get("BUFFER_PROFILE_ID")
 
-client = genai.Client(api_key=GEMINI_KEY)
+# 2. Gemini Configure
+genai.configure(api_key=GEMINI_KEY)
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-# 2. Trending Desi Culture News Fetch aur Format karna
 prompt = """
 Find 1 trending, verified news or buzz topic from India right now in Entertainment, Bollywood, Pop Culture, Memes, or Esports.
 Write an engaging Instagram news post for 'Desi Culture'.
@@ -25,25 +25,22 @@ Strict requirements:
   "caption": "Full Instagram caption with 2-3 short bullet points, a discussion question, and 5-7 trending hashtags (#DesiCulture etc.)"
 """
 
-response = client.models.generate_content(
-    model='gemini-1.5-flash',
-    contents=prompt,
-    config=types.GenerateContentConfig(
-        response_mime_type="application/json"
-    )
+response = model.generate_content(
+    prompt,
+    generation_config={"response_mime_type": "application/json"}
 )
 
 news_data = json.loads(response.text)
 full_text = f"🚨 {news_data['headline']}\n\n{news_data['caption']}"
 print("Generated Post Content:\n", full_text)
 
-# 3. Buffer API ke zariye Instagram par Queue / Post karna
+# 3. Buffer Post
 buffer_url = "https://api.bufferapp.com/1/updates/create.json"
 payload = {
     "access_token": BUFFER_TOKEN,
     "profile_ids[]": BUFFER_PROFILE_ID,
     "text": full_text,
-    "now": True  # True ka matlab run hote hi turant post ho jayegi
+    "now": True
 }
 
 res = requests.post(buffer_url, data=payload)
