@@ -1,17 +1,20 @@
 import os
 import json
-import random
-import subprocess
+import base64
 import textwrap
 import requests
+from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 
 # 1. Credentials
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
-BUFFER_CHANNEL_ID = os.environ.get("BUFFER_PROFILE_ID", "").strip().split(",")[0]
 
-# 2. Dynamic Gemini Model Selection
+# Supports multiple comma-separated channels (e.g. Insta, X, FB)
+BUFFER_CHANNEL_IDS_RAW = os.environ.get("BUFFER_PROFILE_ID", "").strip()
+CHANNEL_IDS = [cid.strip() for cid in BUFFER_CHANNEL_IDS_RAW.split(",") if cid.strip()]
+
+# 2. Dynamic Model Selection
 models_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}").json()
 available = [
     m["name"].replace("models/", "") for m in models_res.get("models", [])
@@ -20,13 +23,18 @@ available = [
 chosen_models = [m for m in available if "flash" in m.lower()] + available
 
 prompt_text = """
-You are a senior digital editor for viral Instagram page 'Desi Culture'.
-Find 1 trending viral news/meme/gaming topic right now.
+You are a senior digital editor for Indian pop culture page 'Desi Culture'.
+Pick 1 massive trending news right now from India or Global in:
+- Cinema / Bollywood / Hollywood / OTT
+- Gaming / Esports / GTA / Anime
+- Viral Drama / Memes / Big Personalities
+
 Return raw JSON ONLY:
 {
-  "headline": "Punchy hook in 8 to 12 words highlighting the drama, update, or fact",
-  "subtext": "1 short context line under headline",
-  "caption": "Viral Instagram Reel caption with engagement question, emojis, and 7 hashtags #DesiCulture"
+  "red_tag": "2-3 WORDS ALL CAPS ATTENTION HOOK e.g. HUGE UPDATE, SHOCKING, BIG REVEAL, CONFIRMED, PEACE OFFER",
+  "headline": "Punchy viral headline in 7 to 12 words in Hinglish or English that creates instant curiosity",
+  "sub_text": "Short 1-line key takeaway or attribution (e.g. ~ OFFICIAL STATEMENT or ~ SOURCES CONFIRM)",
+  "caption": "Full caption with hook, emojis, 2-line detail, engagement question, and 7 hashtags #DesiCulture"
 }
 """
 
@@ -41,12 +49,13 @@ for model in chosen_models:
         res = requests.post(gen_url, json=payload, timeout=25).json()
         if "candidates" in res and res["candidates"]:
             raw_text = res["candidates"][0]["content"]["parts"][0]["text"]
+            print(f"Generated using model: {model}")
             break
-    except Exception:
-        continue
+    except Exception as e:
+        print(f"Failed with {model}:", e)
 
 if not raw_text:
-    raise Exception("Gemini generation failed.")
+    raise Exception("Could not generate content from Gemini.")
 
 if "```json" in raw_text:
     raw_text = raw_text.split("```json")[1].split("```")[0].strip()
@@ -54,163 +63,149 @@ elif "```" in raw_text:
     raw_text = raw_text.split("```")[1].split("```")[0].strip()
 
 news = json.loads(raw_text)
-headline = str(news.get("headline", "VIRAL POP CULTURE UPDATE DROPS"))
-subtext = str(news.get("subtext", "CCTV / Visuals surface online"))
+red_tag = str(news.get("red_tag", "BREAKING UPDATE")).upper()
+headline = str(news.get("headline", "Major News Update Just Dropped")).upper()
+sub_text = str(news.get("sub_text", "~ DESI CULTURE EXCLUSIVE"))
 caption = str(news.get("caption", ""))
-full_caption = f"🚨 {headline}\n\n{caption}"
-print("\n--- REEL CAPTION ---\n", full_caption)
 
-# 3. Reliable Video Sourcing with Fallback Generation
-video_sources = [
-    "https://cdn.pixabay.com/video/2020/05/25/40149-425265564_tiny.mp4",
-    "https://cdn.pixabay.com/video/2021/04/12/70868-536417757_tiny.mp4",
-    "https://cdn.pixabay.com/video/2022/10/25/136440-764953930_tiny.mp4"
-]
+full_caption = f"🚨 {red_tag}: {headline}\n\n{caption}"
+print("\n--- GENERATED POST ---\n", full_caption)
 
-download_success = False
-for vurl in video_sources:
-    try:
-        r = requests.get(vurl, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
-        if r.status_code == 200 and len(r.content) > 100000:
-            with open("raw_video.mp4", "wb") as f:
-                f.write(r.content)
-            download_success = True
-            print(f"Downloaded footage successfully ({len(r.content)} bytes)")
-            break
-    except Exception as e:
-        print("Footage mirror failed:", e)
-
-# Built-in generator fallback agar saare network links down hon
-if not download_success or not os.path.exists("raw_video.mp4") or os.path.getsize("raw_video.mp4") < 50000:
-    print("Generating pure 9:16 background loop via FFmpeg...")
-    fallback_gen = [
-        "ffmpeg", "-y", "-f", "lavfi",
-        "-i", "color=c=0x0a0c10:s=1080x1920:d=7:r=24",
-        "-f", "lavfi",
-        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-t", "7", "-c:v", "libx264", "-c:a", "aac", "raw_video.mp4"
-    ]
-    subprocess.run(fallback_gen, check=True)
-
-# 4. Generate 9:16 Transparent Overlay Card (1080x1920)
-overlay = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
-draw = ImageDraw.Draw(overlay)
+# 3. 4:5 Poster Design (1080x1350 px)
+canvas = Image.new("RGB", (1080, 1350), color=(255, 255, 255))
+draw = ImageDraw.Draw(canvas)
 
 def get_font(size, bold=True):
-    paths = [
+    font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf" if bold else "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
     ]
-    for p in paths:
+    for p in font_paths:
         if os.path.exists(p):
-            return ImageFont.truetype(p, size)
+            try:
+                return ImageFont.truetype(p, size)
+            except Exception:
+                pass
     return ImageFont.load_default()
 
-font_head = get_font(44, bold=True)
-font_sub = get_font(28, bold=False)
-font_brand = get_font(30, bold=True)
+font_tag = get_font(72, bold=True)
+font_head = get_font(46, bold=True)
+font_sub = get_font(26, bold=True)
+font_foot = get_font(28, bold=True)
 
-lines = textwrap.wrap(headline, width=28)
-card_y = 1220
-line_height = 62
+# Top Brand Handle
+draw.text((1080 // 2, 45), "@THEDESICULTURE.IN", fill=(110, 115, 125), font=font_sub, anchor="mm")
 
-for line in lines[:3]:
-    draw.rectangle([(60, card_y), (1020, card_y + line_height)], fill=(12, 60, 48, 235))
-    draw.text((80, card_y + 8), line, fill=(255, 255, 255), font=font_head)
-    card_y += line_height + 10
+# Attention Red Hook
+draw.text((1080 // 2, 125), red_tag, fill=(225, 29, 72), font=font_tag, anchor="mm")
 
-draw.text((60, card_y + 15), subtext, fill=(240, 240, 240, 240), font=font_sub)
+# Headline Block
+headline_lines = textwrap.wrap(headline, width=28)
+y_text = 195
+for line in headline_lines[:3]:
+    draw.text((1080 // 2, y_text), line, fill=(18, 18, 20), font=font_head, anchor="mm")
+    y_text += 58
 
-brand_y = card_y + 85
-draw.text((60, brand_y), "@THEDESICULTURE.IN", fill=(255, 255, 255, 255), font=font_brand)
+# Subtext
+draw.text((1080 // 2, y_text + 15), sub_text, fill=(120, 125, 135), font=font_sub, anchor="mm")
 
-def draw_icons(d, x, y):
-    d.rounded_rectangle([(x, y), (x+36, y+36)], radius=8, outline=(255, 255, 255), width=3)
-    d.ellipse([(x+10, y+10), (x+26, y+26)], outline=(255, 255, 255), width=3)
-    d.line([(x+55, y), (x+85, y+36)], fill=(255, 255, 255), width=3)
-    d.line([(x+85, y), (x+55, y+36)], fill=(255, 255, 255), width=3)
-    d.ellipse([(x+105, y), (x+141, y+36)], outline=(255, 255, 255), width=3)
-    d.text((x+118, y+5), "f", fill=(255, 255, 255), font=font_brand)
+# Lower Visual Area (1080x850 px)
+visual_box_top = 430
+visual_box_height = 850
 
-draw_icons(draw, 840, brand_y - 5)
-overlay.save("overlay.png")
-
-# 5. Composite Reel via FFmpeg
-print("Rendering Reel via FFmpeg...")
-ffmpeg_cmd = [
-    "ffmpeg", "-y",
-    "-t", "7",
-    "-i", "raw_video.mp4",
-    "-i", "overlay.png",
-    "-filter_complex",
-    "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v0];[v0][1:v]overlay=0:0[outv]",
-    "-map", "[outv]",
-    "-c:v", "libx264",
-    "-preset", "ultrafast",
-    "-pix_fmt", "yuv420p",
-    "-an",
-    "final_reel.mp4"
+curated_sources = [
+    "https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1080&h=850&fit=crop",
+    "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1080&h=850&fit=crop",
+    "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1080&h=850&fit=crop"
 ]
-subprocess.run(ffmpeg_cmd, check=True)
 
-# 6. Upload MP4 to High-Speed GitHub Releases CDN (No rate-limits, Buffer friendly)
-print("Hosting Reel video file via GitHub CDN...")
-gh_token = os.environ.get("GITHUB_TOKEN")
-gh_repo = os.environ.get("GITHUB_REPOSITORY")
-
-reel_url = ""
-
-if gh_token and gh_repo:
+for src in curated_sources:
     try:
-        tag_name = "latest-reel"
-        api_headers = {
-            "Authorization": f"Bearer {gh_token}",
-            "Accept": "application/vnd.github+json"
-        }
-        
-        # Check if release exists, delete previous if any to keep clean
-        rel_check = requests.get(f"https://api.github.com/repos/{gh_repo}/releases/tags/{tag_name}", headers=api_headers)
-        if rel_check.status_code == 200:
-            rel_id = rel_check.json().get("id")
-            requests.delete(f"https://api.github.com/repos/{gh_repo}/releases/{rel_id}", headers=api_headers)
-        
-        # Create new lightweight release
-        rel_create = requests.post(
-            f"https://api.github.com/repos/{gh_repo}/releases",
-            headers=api_headers,
-            json={"tag_name": tag_name, "name": "Latest Reel Asset", "draft": False, "prerelease": False}
-        ).json()
-        
-        upload_url = rel_create.get("upload_url", "").replace("{?name,label}", "?name=desi_reel.mp4")
-        
-        # Upload final_reel.mp4 directly as release asset
-        with open("final_reel.mp4", "rb") as vf:
-            up_res = requests.post(
-                upload_url,
-                headers={"Authorization": f"Bearer {gh_token}", "Content-Type": "video/mp4"},
-                data=vf
-            ).json()
-            
-        reel_url = up_res.get("browser_download_url", "")
-        print("GitHub CDN Reel URL:", reel_url)
-    except Exception as e:
-        print("GitHub release upload error:", e)
+        r = requests.get(src, timeout=10)
+        if r.status_code == 200:
+            top_img = Image.open(BytesIO(r.content)).convert("RGB")
+            top_img = top_img.resize((1080, visual_box_height))
+            canvas.paste(top_img, (0, visual_box_top))
+            break
+    except Exception:
+        continue
 
-# Fallback: File.io direct if GH token fails
-if not reel_url:
+draw.line([(0, visual_box_top), (1080, visual_box_top)], fill=(220, 224, 230), width=3)
+
+# Vector Social Icons
+def draw_social_icons(d, center_x, center_y):
+    # Instagram
+    ix, iy = center_x - 90, center_y
+    d.rounded_rectangle([(ix - 22, iy - 22), (ix + 22, iy + 22)], radius=11, outline=(255, 255, 255), width=4)
+    d.ellipse([(ix - 10, iy - 10), (ix + 10, iy + 10)], outline=(255, 255, 255), width=4)
+    d.ellipse([(ix + 11, iy - 13), (ix + 15, iy - 9)], fill=(255, 255, 255))
+
+    # X (Twitter)
+    tx, ty = center_x, center_y
+    d.line([(tx - 18, ty - 18), (tx + 18, ty + 18)], fill=(255, 255, 255), width=4)
+    d.line([(tx + 18, ty - 18), (tx - 18, ty + 18)], fill=(255, 255, 255), width=4)
+
+    # Facebook
+    fx, fy = center_x + 90, center_y
+    d.ellipse([(fx - 22, fy - 22), (fx + 22, fy + 22)], outline=(255, 255, 255), width=4)
+    d.line([(fx + 3, fy - 14), (fx - 3, fy - 14)], fill=(255, 255, 255), width=4)
+    d.line([(fx, fy - 14), (fx, fy + 14)], fill=(255, 255, 255), width=4)
+    d.line([(fx - 6, fy - 2), (fx + 6, fy - 2)], fill=(255, 255, 255), width=4)
+
+draw_social_icons(draw, 1080 // 2, 1220)
+
+# Bottom Watermark Bar
+draw.rectangle([(0, 1280), (1080, 1350)], fill=(12, 14, 18))
+draw.text((55, 1315), "DESI CULTURE NEWS", fill=(245, 158, 11), font=font_foot, anchor="lm")
+draw.text((1025, 1315), "POP CULTURE • GAMING", fill=(160, 165, 175), font=font_sub, anchor="rm")
+
+# 4. Direct CDN Hosting
+img_bytes = BytesIO()
+canvas.save(img_bytes, format="JPEG", quality=92)
+raw_image = img_bytes.getvalue()
+b64_image = base64.b64encode(raw_image).decode("utf-8")
+
+img_url = ""
+try:
+    resp = requests.post(
+        "https://freeimage.host/api/1/upload",
+        data={
+            "key": "6d207e02198a847aa98d0a2a901485a5",
+            "action": "upload",
+            "source": b64_image,
+            "format": "json"
+        },
+        timeout=25
+    )
+    if resp.status_code == 200:
+        img_url = resp.json().get("image", {}).get("url", "")
+        if img_url:
+            print("CDN Hosted URL:", img_url)
+except Exception as e:
+    print("FreeImage upload error:", e)
+
+if not img_url:
     try:
-        with open("final_reel.mp4", "rb") as vf:
-            fio = requests.post("https://file.io", files={"file": ("desi_reel.mp4", vf, "video/mp4")}, timeout=45)
-            if fio.status_code == 200:
-                reel_url = fio.json().get("link", "")
-                print("Fallback file.io URL:", reel_url)
+        resp = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={
+                "key": "2ba37a4c6655c6bba52a468fa35ff61a",
+                "image": b64_image
+            },
+            timeout=25
+        )
+        if resp.status_code == 200:
+            img_url = resp.json().get("data", {}).get("url", "")
+            if img_url:
+                print("ImgBB Hosted URL:", img_url)
     except Exception as e:
-        print("file.io error:", e)
+        print("ImgBB upload error:", e)
 
-if not reel_url or not reel_url.startswith("http"):
-    raise Exception("Video hosting failed.")
+if not img_url:
+    raise Exception("Image hosting failed.")
 
-# 7. Post to Buffer as Reel
+# 5. Buffer GraphQL API Post Submission
 graphql_url = "https://api.buffer.com"
 headers = {
     "Authorization": f"Bearer {BUFFER_TOKEN}",
@@ -233,26 +228,31 @@ mutation CreatePost($input: CreatePostInput!) {
 }
 """
 
-variables = {
-    "input": {
-        "channelId": BUFFER_CHANNEL_ID,
-        "text": full_caption,
-        "mode": "shareNow",
-        "schedulingType": "automatic",
-        "metadata": {
-            "instagram": {
-                "type": "reel",
-                "shouldShareToFeed": True
-            }
-        },
-        "assets": {
-            "video": {
-                "url": reel_url
+for target_channel_id in CHANNEL_IDS:
+    variables = {
+        "input": {
+            "channelId": target_channel_id,
+            "text": full_caption,
+            "mode": "shareNow",
+            "schedulingType": "automatic",
+            "metadata": {
+                "instagram": {
+                    "type": "post",
+                    "shouldShareToFeed": True
+                }
+            },
+            "assets": {
+                "image": {
+                    "url": img_url
+                }
             }
         }
     }
-}
 
-buffer_res = requests.post(graphql_url, headers=headers, json={"query": mutation, "variables": variables})
-print("Buffer Status:", buffer_res.status_code)
-print("Buffer Response:", buffer_res.text)
+    res = requests.post(
+        graphql_url,
+        headers=headers,
+        json={"query": mutation, "variables": variables}
+    )
+    print(f"Posted to {target_channel_id} | Status: {res.status_code}")
+    print("Response:", res.text)
