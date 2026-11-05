@@ -148,7 +148,7 @@ variables = {
     "input": {
         "channelId": BUFFER_PROFILE_ID,
         "text": full_caption,
-        "mode": "SHARE_NOW",
+        "mode": "shareNow",
         "schedulingType": "automatic",
         "assets": {
             "image": {
