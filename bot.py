@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 import textwrap
 import requests
 from io import BytesIO
@@ -113,42 +114,69 @@ draw.line([(70, 1240), (1010, 1240)], fill=(38, 42, 53), width=2)
 draw.text((70, 1265), "@thedesiculture.in", fill=(245, 158, 11))
 draw.text((810, 1265), "GLOBAL CULTURE", fill=(120, 125, 140))
 
-# 4. Reliable Direct CDN Image Hosting (Catbox / Freeimage fallback)
+# 4. Multi-Host Fallback for Direct Image URL
 img_bytes = BytesIO()
 canvas.save(img_bytes, format="JPEG", quality=90)
-raw_image_data = img_bytes.getvalue()
+raw_image = img_bytes.getvalue()
+b64_image = base64.b64encode(raw_image).decode("utf-8")
 
 img_url = ""
-# Attempt 1: Catbox.moe (Direct static CDN)
+
+# Provider 1: FreeImage.host API
 try:
-    upload = requests.post(
-        "https://catbox.moe/user/api.php",
-        data={"reqtype": "fileupload"},
-        files={"fileToUpload": ("desi_post.jpg", raw_image_data, "image/jpeg")},
+    resp = requests.post(
+        "https://freeimage.host/api/1/upload",
+        data={
+            "key": "6d207e02198a847aa98d0a2a901485a5",
+            "action": "upload",
+            "source": b64_image,
+            "format": "json"
+        },
         timeout=25
     )
-    if upload.status_code == 200 and upload.text.startswith("http"):
-        img_url = upload.text.strip()
-        print("Hosted direct CDN Image URL (Catbox):", img_url)
+    if resp.status_code == 200:
+        data = resp.json()
+        img_url = data.get("image", {}).get("url", "")
+        if img_url:
+            print("Hosted directly on FreeImage CDN:", img_url)
 except Exception as e:
-    print("Catbox error:", e)
+    print("FreeImage provider error:", e)
 
-# Fallback: File.io direct download if needed
+# Provider 2: ImgBB Public Direct API
 if not img_url:
     try:
-        upload = requests.post(
-            "https://file.io",
-            files={"file": ("desi_post.jpg", raw_image_data, "image/jpeg")},
+        resp = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={
+                "key": "2ba37a4c6655c6bba52a468fa35ff61a",
+                "image": b64_image
+            },
             timeout=25
         )
-        if upload.status_code == 200:
-            img_url = upload.json().get("link", "")
-            print("Hosted fallback direct Image URL (file.io):", img_url)
+        if resp.status_code == 200:
+            data = resp.json()
+            img_url = data.get("data", {}).get("url", "")
+            if img_url:
+                print("Hosted directly on ImgBB CDN:", img_url)
     except Exception as e:
-        print("Fallback hosting error:", e)
+        print("ImgBB provider error:", e)
+
+# Provider 3: 0x0.st Minimalist Host
+if not img_url:
+    try:
+        resp = requests.post(
+            "https://0x0.st",
+            files={"file": ("post.jpg", raw_image, "image/jpeg")},
+            timeout=25
+        )
+        if resp.status_code == 200 and resp.text.startswith("http"):
+            img_url = resp.text.strip()
+            print("Hosted directly on 0x0 CDN:", img_url)
+    except Exception as e:
+        print("0x0 provider error:", e)
 
 if not img_url:
-    raise Exception("Image hosting failed. Could not obtain a publicly readable URL.")
+    raise Exception("Image hosting failed across all providers.")
 
 # 5. Buffer GraphQL API Post Submission
 graphql_url = "https://api.buffer.com"
