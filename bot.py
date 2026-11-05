@@ -228,12 +228,25 @@ mutation CreatePost($input: CreatePostInput!) {
 }
 """
 
+INSTA_CHANNEL_ID = "6aebaa0ce29c69a171640ea0"
+
 for target_channel_id in CHANNEL_IDS:
-    # Safe character limit for X (Twitter)
-    post_text = full_caption
-    if len(post_text) > 270:
-        short_caption = f"🚨 {red_tag}: {headline}\n\n#DesiCulture #GlobalBuzz"
+    # 1. Platform-specific text & caption
+    if target_channel_id == INSTA_CHANNEL_ID:
+        post_text = full_caption
+        # Instagram specific metadata
+        meta = {
+            "instagram": {
+                "type": "post",
+                "shouldShareToFeed": True
+            }
+        }
+    else:
+        # X (Twitter) safe text (within 280 chars)
+        short_caption = f"🚨 {red_tag}: {headline}\n\n#DesiCulture #PopCulture"
         post_text = short_caption[:275]
+        # X / Facebook ke liye clean empty metadata
+        meta = {}
 
     variables = {
         "input": {
@@ -241,12 +254,7 @@ for target_channel_id in CHANNEL_IDS:
             "text": post_text,
             "mode": "shareNow",
             "schedulingType": "automatic",
-            "metadata": {
-                "instagram": {
-                    "type": "post",
-                    "shouldShareToFeed": True
-                }
-            },
+            "metadata": meta,
             "assets": {
                 "image": {
                     "url": img_url
