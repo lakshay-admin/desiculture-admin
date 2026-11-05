@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import urllib.parse
 import textwrap
 import requests
 from io import BytesIO
@@ -10,11 +11,10 @@ from PIL import Image, ImageDraw, ImageFont
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
 
-# Supports multiple comma-separated channels (e.g. Insta, X, FB)
 BUFFER_CHANNEL_IDS_RAW = os.environ.get("BUFFER_PROFILE_ID", "").strip()
 CHANNEL_IDS = [cid.strip() for cid in BUFFER_CHANNEL_IDS_RAW.split(",") if cid.strip()]
 
-# 2. Dynamic Model Selection
+# 2. Dynamic Model Selection & News Generation with Image Keywords
 models_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}").json()
 available = [
     m["name"].replace("models/", "") for m in models_res.get("models", [])
@@ -31,10 +31,11 @@ Pick 1 massive trending news right now from India or Global in:
 
 Return raw JSON ONLY:
 {
-  "red_tag": "2-3 WORDS ALL CAPS ATTENTION HOOK e.g. HUGE UPDATE, SHOCKING, BIG REVEAL, CONFIRMED, PEACE OFFER",
+  "red_tag": "2-3 WORDS ALL CAPS ATTENTION HOOK e.g. HUGE UPDATE, SHOCKING, BIG REVEAL, CONFIRMED",
   "headline": "Punchy viral headline in 7 to 12 words in Hinglish or English that creates instant curiosity",
   "sub_text": "Short 1-line key takeaway or attribution (e.g. ~ OFFICIAL STATEMENT or ~ SOURCES CONFIRM)",
-  "caption": "Full caption with hook, emojis, 2-line detail, engagement question, and 7 hashtags #DesiCulture"
+  "caption": "Full caption with hook, emojis, 2-line detail, engagement question, and 7 hashtags #DesiCulture",
+  "search_keyword": "1 to 2 word visual topic for photo background e.g. 'concert', 'cinema hall', 'stadium crowd', 'movie camera', 'gaming pc'"
 }
 """
 
@@ -67,9 +68,11 @@ red_tag = str(news.get("red_tag", "BREAKING UPDATE")).upper()
 headline = str(news.get("headline", "Major News Update Just Dropped")).upper()
 sub_text = str(news.get("sub_text", "~ DESI CULTURE EXCLUSIVE"))
 caption = str(news.get("caption", ""))
+search_keyword = str(news.get("search_keyword", "pop culture entertainment"))
 
 full_caption = f"🚨 {red_tag}: {headline}\n\n{caption}"
 print("\n--- GENERATED POST ---\n", full_caption)
+print("Search Keyword for Image:", search_keyword)
 
 # 3. 4:5 Poster Design (1080x1350 px)
 canvas = Image.new("RGB", (1080, 1350), color=(255, 255, 255))
@@ -110,43 +113,44 @@ for line in headline_lines[:3]:
 # Subtext
 draw.text((1080 // 2, y_text + 15), sub_text, fill=(120, 125, 135), font=font_sub, anchor="mm")
 
-# Lower Visual Area (1080x850 px)
+# 4. Dynamic Keyword-Based Lower Visual Fetch (1080x850 px)
 visual_box_top = 430
 visual_box_height = 850
+encoded_keyword = urllib.parse.quote(search_keyword)
 
-curated_sources = [
-    "https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1080&h=850&fit=crop",
-    "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1080&h=850&fit=crop",
-    "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1080&h=850&fit=crop"
+dynamic_sources = [
+    f"https://source.unsplash.com/1080x850/?{encoded_keyword}",
+    f"https://picsum.photos/seed/{encoded_keyword}/1080/850",
+    "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=1080&h=850&fit=crop" # Generic Concert/Stage fallback
 ]
 
-for src in curated_sources:
+img_loaded = False
+for src in dynamic_sources:
     try:
-        r = requests.get(src, timeout=10)
-        if r.status_code == 200:
+        r = requests.get(src, headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
+        if r.status_code == 200 and len(r.content) > 10000:
             top_img = Image.open(BytesIO(r.content)).convert("RGB")
             top_img = top_img.resize((1080, visual_box_height))
             canvas.paste(top_img, (0, visual_box_top))
+            img_loaded = True
+            print(f"Loaded matching image from: {src}")
             break
-    except Exception:
-        continue
+    except Exception as e:
+        print("Image fetch mirror attempt failed:", e)
 
 draw.line([(0, visual_box_top), (1080, visual_box_top)], fill=(220, 224, 230), width=3)
 
 # Vector Social Icons
 def draw_social_icons(d, center_x, center_y):
-    # Instagram
     ix, iy = center_x - 90, center_y
     d.rounded_rectangle([(ix - 22, iy - 22), (ix + 22, iy + 22)], radius=11, outline=(255, 255, 255), width=4)
     d.ellipse([(ix - 10, iy - 10), (ix + 10, iy + 10)], outline=(255, 255, 255), width=4)
     d.ellipse([(ix + 11, iy - 13), (ix + 15, iy - 9)], fill=(255, 255, 255))
 
-    # X (Twitter)
     tx, ty = center_x, center_y
     d.line([(tx - 18, ty - 18), (tx + 18, ty + 18)], fill=(255, 255, 255), width=4)
     d.line([(tx + 18, ty - 18), (tx - 18, ty + 18)], fill=(255, 255, 255), width=4)
 
-    # Facebook
     fx, fy = center_x + 90, center_y
     d.ellipse([(fx - 22, fy - 22), (fx + 22, fy + 22)], outline=(255, 255, 255), width=4)
     d.line([(fx + 3, fy - 14), (fx - 3, fy - 14)], fill=(255, 255, 255), width=4)
@@ -158,9 +162,9 @@ draw_social_icons(draw, 1080 // 2, 1220)
 # Bottom Watermark Bar
 draw.rectangle([(0, 1280), (1080, 1350)], fill=(12, 14, 18))
 draw.text((55, 1315), "DESI CULTURE NEWS", fill=(245, 158, 11), font=font_foot, anchor="lm")
-draw.text((1025, 1315), "POP CULTURE • GAMING", fill=(160, 165, 175), font=font_sub, anchor="rm")
+draw.text((1025, 1315), "POP CULTURE • ENTERTAINMENT", fill=(160, 165, 175), font=font_sub, anchor="rm")
 
-# 4. Direct CDN Hosting
+# 5. Direct CDN Hosting
 img_bytes = BytesIO()
 canvas.save(img_bytes, format="JPEG", quality=92)
 raw_image = img_bytes.getvalue()
@@ -205,7 +209,7 @@ if not img_url:
 if not img_url:
     raise Exception("Image hosting failed.")
 
-# 5. Buffer Multi-Channel Dispatch (Instagram + X + Facebook)
+# 6. Buffer Multi-Channel Dispatch (Instagram + X + Facebook)
 graphql_url = "https://api.buffer.com"
 headers = {
     "Authorization": f"Bearer {BUFFER_TOKEN}",
@@ -231,10 +235,8 @@ mutation CreatePost($input: CreatePostInput!) {
 INSTA_CHANNEL_ID = "6aebaa0ce29c69a171640ea0"
 
 for target_channel_id in CHANNEL_IDS:
-    # 1. Platform-specific text & caption
     if target_channel_id == INSTA_CHANNEL_ID:
         post_text = full_caption
-        # Instagram specific metadata
         meta = {
             "instagram": {
                 "type": "post",
@@ -242,10 +244,8 @@ for target_channel_id in CHANNEL_IDS:
             }
         }
     else:
-        # X (Twitter) safe text (within 280 chars)
         short_caption = f"🚨 {red_tag}: {headline}\n\n#DesiCulture #PopCulture"
         post_text = short_caption[:275]
-        # X / Facebook ke liye clean empty metadata
         meta = {}
 
     variables = {
