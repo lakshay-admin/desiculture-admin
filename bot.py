@@ -1,10 +1,10 @@
 import os
 import json
 import random
+import subprocess
 import textwrap
 import requests
 from PIL import Image, ImageDraw, ImageFont
-from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 
 # 1. Credentials
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
@@ -60,7 +60,7 @@ caption = str(news.get("caption", ""))
 full_caption = f"🚨 {headline}\n\n{caption}"
 print("\n--- REEL CAPTION ---\n", full_caption)
 
-# 3. Download Vertical Royalty-Free Video (Direct URLs, Zero API Key needed)
+# 3. Download Vertical Royalty-Free Video Footage
 VIDEO_FEEDS = [
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
@@ -68,12 +68,12 @@ VIDEO_FEEDS = [
 ]
 selected_video_url = random.choice(VIDEO_FEEDS)
 
-print("Downloading video clip...")
+print("Downloading base footage...")
 v_resp = requests.get(selected_video_url, timeout=30)
 with open("raw_video.mp4", "wb") as f:
     f.write(v_resp.content)
 
-# 4. Generate 9:16 Transparent Lower-Third Overlay Card
+# 4. Generate 9:16 Transparent Lower-Third Overlay Card (1080x1920)
 overlay = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
 draw = ImageDraw.Draw(overlay)
 
@@ -122,20 +122,24 @@ def draw_icons(d, x, y):
 draw_icons(draw, 840, brand_y - 5)
 overlay.save("overlay.png")
 
-# 5. Composite 9:16 Video (7-second loop)
-print("Rendering Reel via MoviePy...")
-clip = VideoFileClip("raw_video.mp4")
-dur = min(7, clip.duration)
-clip = clip.subclip(0, dur).resize(height=1920)
-
-if clip.w > 1080:
-    clip = clip.crop(x_center=clip.w / 2, width=1080)
-elif clip.w < 1080:
-    clip = clip.resize(width=1080)
-
-overlay_clip = ImageClip("overlay.png").set_duration(clip.duration)
-final_video = CompositeVideoClip([clip, overlay_clip])
-final_video.write_videofile("final_reel.mp4", codec="libx264", audio_codec="aac", fps=24, preset="ultrafast")
+# 5. Fast Direct FFmpeg Composite (Crops to 1080x1920 9:16 and overlays PNG)
+print("Rendering Reel via FFmpeg...")
+ffmpeg_cmd = [
+    "ffmpeg", "-y",
+    "-t", "7",
+    "-i", "raw_video.mp4",
+    "-i", "overlay.png",
+    "-filter_complex",
+    "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[v0];[v0][1:v]overlay=0:0[outv]",
+    "-map", "[outv]",
+    "-map", "0:a?",
+    "-c:v", "libx264",
+    "-preset", "ultrafast",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "final_reel.mp4"
+]
+subprocess.run(ffmpeg_cmd, check=True)
 
 # 6. Upload MP4 to Direct CDN
 print("Hosting Reel video file...")
