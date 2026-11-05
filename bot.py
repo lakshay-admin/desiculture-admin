@@ -205,7 +205,7 @@ if not img_url:
 if not img_url:
     raise Exception("Image hosting failed.")
 
-# 5. Buffer GraphQL API Post Submission
+# 5. Buffer Multi-Channel Dispatch (Instagram + X + Facebook)
 graphql_url = "https://api.buffer.com"
 headers = {
     "Authorization": f"Bearer {BUFFER_TOKEN}",
@@ -229,10 +229,16 @@ mutation CreatePost($input: CreatePostInput!) {
 """
 
 for target_channel_id in CHANNEL_IDS:
+    # Safe character limit for X (Twitter)
+    post_text = full_caption
+    if len(post_text) > 270:
+        short_caption = f"🚨 {red_tag}: {headline}\n\n#DesiCulture #GlobalBuzz"
+        post_text = short_caption[:275]
+
     variables = {
         "input": {
             "channelId": target_channel_id,
-            "text": full_caption,
+            "text": post_text,
             "mode": "shareNow",
             "schedulingType": "automatic",
             "metadata": {
@@ -254,5 +260,5 @@ for target_channel_id in CHANNEL_IDS:
         headers=headers,
         json={"query": mutation, "variables": variables}
     )
-    print(f"Posted to {target_channel_id} | Status: {res.status_code}")
-    print("Response:", res.text)
+    print(f"Dispatched to {target_channel_id} | Status: {res.status_code}")
+    print("Buffer Response:", res.text)
