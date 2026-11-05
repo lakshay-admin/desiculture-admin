@@ -113,23 +113,42 @@ draw.line([(70, 1240), (1010, 1240)], fill=(38, 42, 53), width=2)
 draw.text((70, 1265), "@thedesiculture.in", fill=(245, 158, 11))
 draw.text((810, 1265), "GLOBAL CULTURE", fill=(120, 125, 140))
 
-# 4. Image Hosting
+# 4. Reliable Direct CDN Image Hosting (Catbox / Freeimage fallback)
 img_bytes = BytesIO()
-canvas.save(img_bytes, format="JPEG", quality=92)
-img_bytes.seek(0)
+canvas.save(img_bytes, format="JPEG", quality=90)
+raw_image_data = img_bytes.getvalue()
 
 img_url = ""
+# Attempt 1: Catbox.moe (Direct static CDN)
 try:
     upload = requests.post(
-        "https://tmpfiles.org/api/v1/upload",
-        files={"file": ("post.jpg", img_bytes, "image/jpeg")}
+        "https://catbox.moe/user/api.php",
+        data={"reqtype": "fileupload"},
+        files={"fileToUpload": ("desi_post.jpg", raw_image_data, "image/jpeg")},
+        timeout=25
     )
-    if upload.status_code == 200:
-        orig = upload.json().get("data", {}).get("url", "")
-        img_url = orig.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-        print("Hosted Image URL:", img_url)
+    if upload.status_code == 200 and upload.text.startswith("http"):
+        img_url = upload.text.strip()
+        print("Hosted direct CDN Image URL (Catbox):", img_url)
 except Exception as e:
-    print("Hosting error:", e)
+    print("Catbox error:", e)
+
+# Fallback: File.io direct download if needed
+if not img_url:
+    try:
+        upload = requests.post(
+            "https://file.io",
+            files={"file": ("desi_post.jpg", raw_image_data, "image/jpeg")},
+            timeout=25
+        )
+        if upload.status_code == 200:
+            img_url = upload.json().get("link", "")
+            print("Hosted fallback direct Image URL (file.io):", img_url)
+    except Exception as e:
+        print("Fallback hosting error:", e)
+
+if not img_url:
+    raise Exception("Image hosting failed. Could not obtain a publicly readable URL.")
 
 # 5. Buffer GraphQL API Post Submission
 graphql_url = "https://api.buffer.com"
@@ -170,7 +189,7 @@ variables = {
             "image": {
                 "url": img_url
             }
-        } if img_url else None
+        }
     }
 }
 
