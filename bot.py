@@ -108,7 +108,7 @@ try:
 except Exception as e:
     print("Hosting error:", e)
 
-# 5. Buffer Official GraphQL API (PostActionPayload format)
+# 5. Buffer GraphQL API
 graphql_url = "https://api.buffer.com"
 headers = {
     "Authorization": f"Bearer {BUFFER_TOKEN}",
@@ -118,9 +118,10 @@ headers = {
 mutation = """
 mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
-    post {
-      id
-      status
+    ... on PostActionSuccess {
+      post {
+        id
+      }
     }
   }
 }
@@ -141,7 +142,7 @@ buffer_res = requests.post(
     graphql_url,
     headers=headers,
     json={"query": mutation, "variables": variables}
-)
+}
 
 print("Buffer GraphQL Status:", buffer_res.status_code)
 print("Buffer GraphQL Response:", buffer_res.text)
