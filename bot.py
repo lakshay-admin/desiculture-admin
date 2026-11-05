@@ -1,17 +1,17 @@
 import os
 import json
-import base64
+import random
 import textwrap
 import requests
-from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
+from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
 
 # 1. Credentials
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
-BUFFER_CHANNEL_ID = os.environ.get("BUFFER_PROFILE_ID", "").strip()
+BUFFER_CHANNEL_ID = os.environ.get("BUFFER_PROFILE_ID", "").strip().split(",")[0]
 
-# 2. Dynamic Model Selection
+# 2. Dynamic Gemini Model Selection
 models_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}").json()
 available = [
     m["name"].replace("models/", "") for m in models_res.get("models", [])
@@ -20,19 +20,13 @@ available = [
 chosen_models = [m for m in available if "flash" in m.lower()] + available
 
 prompt_text = """
-You are a senior digital editor for Indian pop culture page 'Desi Culture'.
-Pick 1 massive trending news right now from India or Global in:
-- Cinema / Bollywood / Hollywood / OTT
-- Gaming / Esports / GTA / Anime
-- Viral Drama / Memes / Big Personalities
-
+You are a senior digital editor for viral Instagram page 'Desi Culture'.
+Find 1 trending viral news/meme/gaming topic right now.
 Return raw JSON ONLY:
 {
-  "red_tag": "2-3 WORDS ALL CAPS ATTENTION HOOK e.g. HUGE UPDATE, SHOCKING, BIG REVEAL, CONFIRMED, PEACE OFFER",
-  "headline": "Punchy viral headline in 7 to 12 words in Hinglish or English that creates instant curiosity",
-  "sub_text": "Short 1-line key takeaway or attribution (e.g. ~ OFFICIAL STATEMENT or ~ SOURCES CONFIRM)",
-  "search_keyword": "single relevant visual search term e.g. cinema, stadium, gaming, supercar, concert, tech",
-  "caption": "Full Instagram caption with hook, emojis, 2-line detail, engagement question, and 7 hashtags #DesiCulture"
+  "headline": "Punchy hook in 8 to 12 words highlighting the drama, update, or fact",
+  "subtext": "1 short context line under headline",
+  "caption": "Viral Instagram Reel caption with engagement question, emojis, and 7 hashtags #DesiCulture"
 }
 """
 
@@ -47,13 +41,12 @@ for model in chosen_models:
         res = requests.post(gen_url, json=payload, timeout=25).json()
         if "candidates" in res and res["candidates"]:
             raw_text = res["candidates"][0]["content"]["parts"][0]["text"]
-            print(f"Generated using model: {model}")
             break
-    except Exception as e:
-        print(f"Failed with {model}:", e)
+    except Exception:
+        continue
 
 if not raw_text:
-    raise Exception("Could not generate content from Gemini.")
+    raise Exception("Gemini generation failed.")
 
 if "```json" in raw_text:
     raw_text = raw_text.split("```json")[1].split("```")[0].strip()
@@ -61,132 +54,105 @@ elif "```" in raw_text:
     raw_text = raw_text.split("```")[1].split("```")[0].strip()
 
 news = json.loads(raw_text)
-red_tag = str(news.get("red_tag", "BREAKING UPDATE")).upper()
-headline = str(news.get("headline", "Major News Update Just Dropped")).upper()
-sub_text = str(news.get("sub_text", "~ DESI CULTURE EXCLUSIVE"))
-search_kw = str(news.get("search_keyword", "entertainment"))
+headline = str(news.get("headline", "VIRAL POP CULTURE UPDATE DROPS"))
+subtext = str(news.get("subtext", "CCTV / Visuals surface online"))
 caption = str(news.get("caption", ""))
+full_caption = f"🚨 {headline}\n\n{caption}"
+print("\n--- REEL CAPTION ---\n", full_caption)
 
-full_caption = f"🚨 {red_tag}: {headline}\n\n{caption}"
-print("\n--- GENERATED POST ---\n", full_caption)
+# 3. Download Vertical Royalty-Free Video (Direct URLs, Zero API Key needed)
+VIDEO_FEEDS = [
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"
+]
+selected_video_url = random.choice(VIDEO_FEEDS)
 
-# 3. Canvas Construction: Ghantaa / RVCJ High-Reach Layout (1080x1350 px)
-canvas = Image.new("RGB", (1080, 1350), color=(255, 255, 255))
-draw = ImageDraw.Draw(canvas)
+print("Downloading video clip...")
+v_resp = requests.get(selected_video_url, timeout=30)
+with open("raw_video.mp4", "wb") as f:
+    f.write(v_resp.content)
 
-# System Font Helper with fallback
+# 4. Generate 9:16 Transparent Lower-Third Overlay Card
+overlay = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+draw = ImageDraw.Draw(overlay)
+
 def get_font(size, bold=True):
-    font_paths = [
+    paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf" if bold else "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
     ]
-    for p in font_paths:
+    for p in paths:
         if os.path.exists(p):
-            try:
-                return ImageFont.truetype(p, size)
-            except Exception:
-                pass
+            return ImageFont.truetype(p, size)
     return ImageFont.load_default()
 
-font_tag = get_font(72, bold=True)
-font_head = get_font(46, bold=True)
-font_sub = get_font(26, bold=True)
-font_foot = get_font(28, bold=True)
+font_head = get_font(44, bold=True)
+font_sub = get_font(28, bold=False)
+font_brand = get_font(30, bold=True)
 
-# Top Brand Badge
-draw.text((1080 // 2, 45), "@THEDESICULTURE.IN", fill=(110, 115, 125), font=font_sub, anchor="mm")
+# Build text banner blocks (fact.of.indian style)
+lines = textwrap.wrap(headline, width=28)
+card_y = 1220
+line_height = 62
 
-# Massive Attention Red Hook
-draw.text((1080 // 2, 125), red_tag, fill=(225, 29, 72), font=font_tag, anchor="mm")
+for line in lines[:3]:
+    draw.rectangle([(60, card_y), (1020, card_y + line_height)], fill=(12, 60, 48, 235))
+    draw.text((80, card_y + 8), line, fill=(255, 255, 255), font=font_head)
+    card_y += line_height + 10
 
-# Bold Black Headline (Centered text block)
-headline_lines = textwrap.wrap(headline, width=28)
-y_text = 195
-for line in headline_lines[:3]:
-    draw.text((1080 // 2, y_text), line, fill=(18, 18, 20), font=font_head, anchor="mm")
-    y_text += 58
+# Subtext
+draw.text((60, card_y + 15), subtext, fill=(240, 240, 240, 240), font=font_sub)
 
-# Attribution Subtext
-draw.text((1080 // 2, y_text + 15), sub_text, fill=(120, 125, 135), font=font_sub, anchor="mm")
+# Branding & Social Icons Bar
+brand_y = card_y + 85
+draw.text((60, brand_y), "@THEDESICULTURE.IN", fill=(255, 255, 255, 255), font=font_brand)
 
-# Lower Half: Visual Area (From y=440 down to y=1280)
-visual_box_top = 430
-visual_box_height = 850
+def draw_icons(d, x, y):
+    # Instagram
+    d.rounded_rectangle([(x, y), (x+36, y+36)], radius=8, outline=(255, 255, 255), width=3)
+    d.ellipse([(x+10, y+10), (x+26, y+26)], outline=(255, 255, 255), width=3)
+    # X
+    d.line([(x+55, y), (x+85, y+36)], fill=(255, 255, 255), width=3)
+    d.line([(x+85, y), (x+55, y+36)], fill=(255, 255, 255), width=3)
+    # Facebook
+    d.ellipse([(x+105, y), (x+141, y+36)], outline=(255, 255, 255), width=3)
+    d.text((x+118, y+5), "f", fill=(255, 255, 255), font=font_brand)
 
-curated_sources = [
-    f"https://images.unsplash.com/photo-1511512578047-dfb367046420?w=1080&h=850&fit=crop", # gaming/tech
-    f"https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1080&h=850&fit=crop", # cinema/show
-    f"https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1080&h=850&fit=crop"  # pop culture/lights
-]
+draw_icons(draw, 840, brand_y - 5)
+overlay.save("overlay.png")
 
-img_loaded = False
-for src in curated_sources:
-    try:
-        r = requests.get(src, timeout=10)
-        if r.status_code == 200:
-            top_img = Image.open(BytesIO(r.content)).convert("RGB")
-            top_img = top_img.resize((1080, visual_box_height))
-            canvas.paste(top_img, (0, visual_box_top))
-            img_loaded = True
-            break
-    except Exception:
-        continue
+# 5. Composite 9:16 Video (7-second loop)
+print("Rendering Reel via MoviePy...")
+clip = VideoFileClip("raw_video.mp4")
+dur = min(7, clip.duration)
+clip = clip.subclip(0, dur).resize(height=1920)
 
-# Subtle border line between header & image
-draw.line([(0, visual_box_top), (1080, visual_box_top)], fill=(220, 224, 230), width=3)
+if clip.w > 1080:
+    clip = clip.crop(x_center=clip.w / 2, width=1080)
+elif clip.w < 1080:
+    clip = clip.resize(width=1080)
 
-# Bottom Minimal Watermark Bar
-draw.rectangle([(0, 1280), (1080, 1350)], fill=(12, 14, 18))
-draw.text((55, 1315), "DESI CULTURE NEWS", fill=(245, 158, 11), font=font_foot, anchor="lm")
-draw.text((1025, 1315), "POP CULTURE • GAMING", fill=(160, 165, 175), font=font_sub, anchor="rm")
+overlay_clip = ImageClip("overlay.png").set_duration(clip.duration)
+final_video = CompositeVideoClip([clip, overlay_clip])
+final_video.write_videofile("final_reel.mp4", codec="libx264", audio_codec="aac", fps=24, preset="ultrafast")
 
-# 4. Direct CDN Hosting
-img_bytes = BytesIO()
-canvas.save(img_bytes, format="JPEG", quality=92)
-raw_image = img_bytes.getvalue()
-b64_image = base64.b64encode(raw_image).decode("utf-8")
-
-img_url = ""
-try:
-    resp = requests.post(
-        "https://freeimage.host/api/1/upload",
-        data={
-            "key": "6d207e02198a847aa98d0a2a901485a5",
-            "action": "upload",
-            "source": b64_image,
-            "format": "json"
-        },
-        timeout=25
+# 6. Upload MP4 to Direct CDN
+print("Hosting Reel video file...")
+with open("final_reel.mp4", "rb") as vf:
+    upload = requests.post(
+        "https://catbox.moe/user/api.php",
+        data={"reqtype": "fileupload"},
+        files={"fileToUpload": ("desi_reel.mp4", vf, "video/mp4")},
+        timeout=60
     )
-    if resp.status_code == 200:
-        img_url = resp.json().get("image", {}).get("url", "")
-        if img_url:
-            print("CDN Hosted URL:", img_url)
-except Exception as e:
-    print("FreeImage upload error:", e)
 
-if not img_url:
-    try:
-        resp = requests.post(
-            "https://api.imgbb.com/1/upload",
-            data={
-                "key": "2ba37a4c6655c6bba52a468fa35ff61a",
-                "image": b64_image
-            },
-            timeout=25
-        )
-        if resp.status_code == 200:
-            img_url = resp.json().get("data", {}).get("url", "")
-            if img_url:
-                print("ImgBB Hosted URL:", img_url)
-    except Exception as e:
-        print("ImgBB upload error:", e)
+reel_url = upload.text.strip()
+print("Direct Hosted Reel URL:", reel_url)
+if not reel_url.startswith("http"):
+    raise Exception("Video hosting failed: " + reel_url)
 
-if not img_url:
-    raise Exception("Image hosting failed.")
-
-# 5. Buffer GraphQL API Post Submission
+# 7. Post to Buffer as Reel
 graphql_url = "https://api.buffer.com"
 headers = {
     "Authorization": f"Bearer {BUFFER_TOKEN}",
@@ -217,23 +183,18 @@ variables = {
         "schedulingType": "automatic",
         "metadata": {
             "instagram": {
-                "type": "post",
+                "type": "reel",
                 "shouldShareToFeed": True
             }
         },
         "assets": {
-            "image": {
-                "url": img_url
+            "video": {
+                "url": reel_url
             }
         }
     }
 }
 
-buffer_res = requests.post(
-    graphql_url,
-    headers=headers,
-    json={"query": mutation, "variables": variables}
-)
-
-print("Buffer GraphQL Status:", buffer_res.status_code)
-print("Buffer GraphQL Response:", buffer_res.text)
+buffer_res = requests.post(graphql_url, headers=headers, json={"query": mutation, "variables": variables})
+print("Buffer Status:", buffer_res.status_code)
+print("Buffer Response:", buffer_res.text)
