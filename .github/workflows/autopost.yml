@@ -2,17 +2,18 @@ name: Desi Culture Auto Poster
 
 on:
   schedule:
-    # 11:30 AM IST = 06:00 UTC
-    # 06:00 PM IST = 12:30 UTC
-    # 10:15 PM IST = 16:45 UTC
-    - cron: '0 6 * * *'
+    # Post 1: 1:30 PM IST (08:00 AM UTC)
+    - cron: '0 8 * * *'
+    # Post 2: 6:00 PM IST (12:30 PM UTC)
     - cron: '30 12 * * *'
-    - cron: '45 16 * * *'
-  workflow_dispatch:
+    # Post 3: 10:00 PM IST (04:30 PM UTC)
+    - cron: '30 16 * * *'
+  workflow_dispatch: # Allows manual trigger anytime from Actions tab
 
 jobs:
   post:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -23,12 +24,13 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install requests pillow
 
       - name: Run Poster Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BUFFER_ACCESS_TOKEN: ${{ secrets.BUFFER_ACCESS_TOKEN }}
           BUFFER_PROFILE_ID: ${{ secrets.BUFFER_PROFILE_ID }}
-        run: python bot.py
-        
+        run: |
+          python bot.py
