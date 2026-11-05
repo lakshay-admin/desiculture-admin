@@ -16,9 +16,6 @@ available = [
     m["name"].replace("models/", "") for m in models_res.get("models", [])
     if "generateContent" in m.get("supportedGenerationMethods", [])
 ]
-print("Available models:", available)
-
-# Prioritize flash models, then any available
 chosen_models = [m for m in available if "flash" in m.lower()] + available
 
 prompt_text = """
@@ -52,8 +49,6 @@ for model in chosen_models:
             raw_text = res["candidates"][0]["content"]["parts"][0]["text"]
             print(f"Successfully generated using model: {model}")
             break
-        else:
-            print(f"Model {model} returned no candidates: {res}")
     except Exception as e:
         print(f"Attempt with {model} failed:", e)
 
@@ -153,9 +148,9 @@ variables = {
     "input": {
         "channelId": BUFFER_PROFILE_ID,
         "text": full_caption,
-        "schedulingType": "automatic",
+        "mode": "now",
         "assets": {
-            "images": [img_url]
+            "image": img_url
         } if img_url else None
     }
 }
