@@ -31,7 +31,7 @@ Return raw JSON ONLY without markdown backticks:
   "category": "MOVIES or ESPORTS or GAMING or MEMES or GLOBAL BUZZ",
   "search_keyword": "single english word for visual background e.g. cinema or gamer or meme or concert",
   "headline": "Short punchy hook in 6 to 9 words",
-  "bullet_points": "2 crisp facts explaining the update in Hinglish",
+  "bullet_points": "2 crisp facts explaining the update in Hinglish as a single plain text string",
   "caption": "Full Instagram caption with hook, bullet points, discussion question, and 7 hashtags #DesiCulture #GlobalBuzz"
 }
 """
@@ -61,11 +61,18 @@ elif "```" in raw_text:
     raw_text = raw_text.split("```")[1].split("```")[0].strip()
 
 news = json.loads(raw_text)
-category = news.get("category", "GLOBAL BUZZ").upper()
-search_kw = news.get("search_keyword", "entertainment")
-headline = news.get("headline", "Global Culture Update")
-bullets = news.get("bullet_points", "")
-caption = news.get("caption", "")
+category = str(news.get("category", "GLOBAL BUZZ")).upper()
+search_kw = str(news.get("search_keyword", "entertainment"))
+headline = str(news.get("headline", "Global Culture Update"))
+
+# Handle bullet_points whether returned as a list or string
+bullets_raw = news.get("bullet_points", "")
+if isinstance(bullets_raw, list):
+    bullets = " • ".join([str(b).strip() for b in bullets_raw])
+else:
+    bullets = str(bullets_raw)
+
+caption = str(news.get("caption", ""))
 full_caption = f"🚨 {headline}\n\n{caption}"
 print("\n--- GENERATED POST ---\n", full_caption)
 
