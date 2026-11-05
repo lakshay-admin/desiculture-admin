@@ -142,7 +142,7 @@ buffer_res = requests.post(
     graphql_url,
     headers=headers,
     json={"query": mutation, "variables": variables}
-}
+)
 
 print("Buffer GraphQL Status:", buffer_res.status_code)
 print("Buffer GraphQL Response:", buffer_res.text)
