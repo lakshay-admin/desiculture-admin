@@ -10,49 +10,41 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
 BUFFER_PROFILE_ID = os.environ.get("BUFFER_PROFILE_ID")
 
-# 2. Model Detection
-models_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}"
-models_res = requests.get(models_url).json()
-
-supported = [
-    m["name"] for m in models_res.get("models", [])
-    if "generateContent" in m.get("supportedGenerationMethods", [])
-]
-chosen = next((m for m in supported if "flash" in m.lower()), supported[0])
-model_endpoint = chosen.replace("models/", "")
-print(f"Using Model: {model_endpoint}")
-
-# 3. Global Multi-Category News & Meme Prompt
+# 2. Trending Worldwide News & Meme Prompt (Targeting gemini-3.0-flash)
 prompt = """
-You are a senior social editor for 'Desi Culture' covering both GLOBAL and INDIAN youth culture.
-Find 1 trending buzz topic right now from across the WORLD or INDIA in one of these categories:
+You are a senior digital news editor for 'Desi Culture'.
+Find 1 trending viral news topic right now from across the WORLD or INDIA in one of these categories:
 - MOVIES / HOLLYWOOD / BOLLYWOOD / ANIME
 - ESPORTS / GAMING
 - MEME CULTURE / VIRAL INTERNET
 - GLOBAL TECH / POP CULTURE
 
-Requirements:
-- Raw JSON ONLY, without markdown format tags:
+Return raw JSON ONLY without markdown backticks:
 {
   "category": "MOVIES or ESPORTS or GAMING or MEMES or GLOBAL BUZZ",
-  "search_keyword": "1 simple english search term for visual background (e.g. cinema, controller, concert, anime)",
-  "headline": "Short viral hook in 6 to 9 words",
+  "search_keyword": "single english word for visual background e.g. cinema or gamer or meme or concert",
+  "headline": "Short punchy hook in 6 to 9 words",
   "bullet_points": "2 crisp facts explaining the update in Hinglish",
-  "caption": "Full Instagram caption: bold opener, 2 brief points, provocative question to drive comments, and 7 high-reach hashtags (#DesiCulture #GlobalBuzz etc.)"
+  "caption": "Full Instagram caption with hook, bullet points, discussion question, and 7 hashtags #DesiCulture #GlobalBuzz"
 }
 """
 
-gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_endpoint}:generateContent?key={GEMINI_KEY}"
+# Call gemini-3.0-flash on Google Generative Language API
+gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key={GEMINI_KEY}"
 payload = {
     "contents": [{"parts": [{"text": prompt}]}],
     "generationConfig": {"response_mime_type": "application/json"}
 }
 
-res = requests.post(gen_url, json=payload).json()
-if "candidates" not in res:
-    raise Exception(f"Gemini API Error: {res}")
+res = requests.post(gemini_url, json=payload)
+print("Gemini Status Code:", res.status_code)
+res_json = res.json()
 
-raw_text = res["candidates"][0]["content"]["parts"][0]["text"]
+if "candidates" not in res_json:
+    print("API Error Response:", res_json)
+    raise Exception(f"Gemini API Error: {res_json}")
+
+raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
 if "```json" in raw_text:
     raw_text = raw_text.split("```json")[1].split("```")[0].strip()
 elif "```" in raw_text:
@@ -64,12 +56,13 @@ search_kw = news.get("search_keyword", "entertainment")
 headline = news.get("headline", "Global Culture Update")
 bullets = news.get("bullet_points", "")
 caption = news.get("caption", "")
-full_caption = f"🌍 🚨 {headline}\n\n{caption}"
+full_caption = f"🚨 {headline}\n\n{caption}"
+print("\n--- GENERATED POST ---\n", full_caption)
 
-# 4. Vertical 4:5 Poster Design (1080x1350)
+# 3. Canvas Setup (4:5 Ratio - 1080x1350 px)
 canvas = Image.new("RGB", (1080, 1350), color=(15, 17, 23))
 
-# Fetch relevant photo
+# Fetch background photo
 try:
     img_res = requests.get(f"https://picsum.photos/1080/750?{search_kw}", timeout=10)
     if img_res.status_code == 200:
@@ -86,8 +79,8 @@ for y in range(480, 750):
     alpha = int(255 * ((y - 480) / 270))
     draw.line([(0, y), (1080, y)], fill=(15, 17, 23, alpha))
 
-# Category Badge (Dynamic theme colors)
-tag_color = (225, 29, 72) if "ESPORTS" in category or "GAMING" in category else (245, 158, 11)
+# Category Badge
+tag_color = (225, 29, 72) if ("ESPORTS" in category or "GAMING" in category) else (245, 158, 11)
 draw.rounded_rectangle([(60, 60), (440, 125)], radius=12, fill=tag_color)
 draw.text((85, 78), category, fill=(255, 255, 255))
 
@@ -109,22 +102,25 @@ draw.line([(70, 1240), (1010, 1240)], fill=(38, 42, 53), width=2)
 draw.text((70, 1265), "@thedesiculture.in", fill=(245, 158, 11))
 draw.text((810, 1265), "GLOBAL CULTURE", fill=(120, 125, 140))
 
-# 5. Image Hosting & Buffer Dispatch
+# 4. Image Hosting
 img_bytes = BytesIO()
 canvas.save(img_bytes, format="JPEG", quality=92)
 img_bytes.seek(0)
 
-upload = requests.post(
-    "https://tmpfiles.org/api/v1/upload",
-    files={"file": ("post.jpg", img_bytes, "image/jpeg")}
-)
-
 img_url = ""
-if upload.status_code == 200:
-    orig = upload.json().get("data", {}).get("url", "")
-    img_url = orig.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-    print("Hosted Image URL:", img_url)
+try:
+    upload = requests.post(
+        "https://tmpfiles.org/api/v1/upload",
+        files={"file": ("post.jpg", img_bytes, "image/jpeg")}
+    )
+    if upload.status_code == 200:
+        orig = upload.json().get("data", {}).get("url", "")
+        img_url = orig.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+        print("Hosted Image URL:", img_url)
+except Exception as e:
+    print("Hosting error:", e)
 
+# 5. Buffer Dispatch
 buffer_payload = {
     "access_token": BUFFER_TOKEN,
     "profile_ids[]": BUFFER_PROFILE_ID,
