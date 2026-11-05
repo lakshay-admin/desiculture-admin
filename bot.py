@@ -29,53 +29,16 @@ Return raw JSON ONLY without markdown backticks:
 }
 """
 
-raw_text = ""
+# Gemini Generation Call
+gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={GEMINI_KEY}"
+payload = {
+    "contents": [{"parts": [{"text": prompt_text}]}],
+    "generationConfig": {"response_mime_type": "application/json"}
+}
 
-# Method A: Try Interactions API (Google's latest format for 3.0 models)
-try:
-    interact_url = f"https://generativelanguage.googleapis.com/v1alpha/interactions?key={GEMINI_KEY}"
-    interact_payload = {
-        "model": "gemini-3.0-flash",
-        "input": prompt_text,
-        "response_mime_type": "application/json"
-    }
-    r = requests.post(interact_url, json=interact_payload, timeout=20)
-    print("Interactions API Status:", r.status_code)
-    if r.status_code == 200:
-        data = r.json()
-        raw_text = data.get("output", "") or data.get("text", "")
-except Exception as e:
-    print("Interactions API fallback trigger:", e)
+res = requests.post(gen_url, json=payload).json()
+raw_text = res["candidates"][0]["content"]["parts"][0]["text"]
 
-# Method B: Fallback to dynamic listModels if Method A didn't populate raw_text
-if not raw_text:
-    models_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}").json()
-    available = [
-        m["name"] for m in models_res.get("models", [])
-        if "generateContent" in m.get("supportedGenerationMethods", [])
-    ]
-    print("Available models in account:", available)
-    
-    # Try each available model until one succeeds
-    for m_name in available:
-        clean_name = m_name.replace("models/", "")
-        gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_name}:generateContent?key={GEMINI_KEY}"
-        payload = {
-            "contents": [{"parts": [{"text": prompt_text}]}],
-            "generationConfig": {"response_mime_type": "application/json"}
-        }
-        res = requests.post(gen_url, json=payload)
-        if res.status_code == 200:
-            res_json = res.json()
-            if "candidates" in res_json:
-                raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-                print(f"Successfully generated using: {clean_name}")
-                break
-
-if not raw_text:
-    raise Exception("Could not generate content from any Gemini endpoint. Check API key permissions.")
-
-# Clean JSON
 if "```json" in raw_text:
     raw_text = raw_text.split("```json")[1].split("```")[0].strip()
 elif "```" in raw_text:
@@ -93,7 +56,6 @@ print("\n--- GENERATED POST ---\n", full_caption)
 # 3. Vertical 4:5 Poster Design (1080x1350 px)
 canvas = Image.new("RGB", (1080, 1350), color=(15, 17, 23))
 
-# Fetch background photo
 try:
     img_res = requests.get(f"https://picsum.photos/1080/750?{search_kw}", timeout=10)
     if img_res.status_code == 200:
@@ -151,16 +113,46 @@ try:
 except Exception as e:
     print("Hosting error:", e)
 
-# 5. Buffer Dispatch
-buffer_payload = {
-    "access_token": BUFFER_TOKEN,
-    "profile_ids[]": BUFFER_PROFILE_ID,
-    "text": full_caption,
-    "now": True
+# 5. Buffer Official GraphQL API Call
+graphql_url = "https://api.bufferapp.com/graphql"
+headers = {
+    "Authorization": f"Bearer {BUFFER_TOKEN}",
+    "Content-Type": "application/json"
 }
-if img_url:
-    buffer_payload["media[photo]"] = img_url
 
-buffer_res = requests.post("https://api.bufferapp.com/1/updates/create.json", data=buffer_payload)
-print("Buffer Status:", buffer_res.status_code)
-print("Buffer Response:", buffer_res.text)
+# Buffer GraphQL mutation for creating an update
+mutation = """
+mutation CreatePost($input: CreatePostInput!) {
+  createPost(input: $input) {
+    ... on PostActionSuccess {
+      post {
+        id
+        status
+      }
+    }
+    ... on UserError {
+      message
+    }
+  }
+}
+"""
+
+variables = {
+    "input": {
+        "channelId": BUFFER_PROFILE_ID,
+        "text": full_caption,
+        "schedulingType": "automatic",
+        "assets": {
+            "images": [img_url]
+        } if img_url else {}
+    }
+}
+
+buffer_res = requests.post(
+    graphql_url,
+    headers=headers,
+    json={"query": mutation, "variables": variables}
+)
+
+print("Buffer GraphQL Status:", buffer_res.status_code)
+print("Buffer GraphQL Response:", buffer_res.text)
