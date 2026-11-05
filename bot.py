@@ -8,9 +8,53 @@ from PIL import Image, ImageDraw
 # 1. Credentials
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 BUFFER_TOKEN = os.environ.get("BUFFER_ACCESS_TOKEN")
-BUFFER_PROFILE_ID = os.environ.get("BUFFER_PROFILE_ID")
+GRAPHQL_URL = "https://api.buffer.com"
+HEADERS = {
+    "Authorization": f"Bearer {BUFFER_TOKEN}",
+    "Content-Type": "application/json"
+}
 
-# 2. Dynamic Model Selection with safe fallback
+# 2. Get Real GraphQL Channel ID Automatically
+channels_query = """
+query GetChannels {
+  account {
+    organizations {
+      channels {
+        id
+        name
+        service
+      }
+    }
+  }
+}
+"""
+
+ch_res = requests.post(
+    GRAPHQL_URL,
+    headers=HEADERS,
+    json={"query": channels_query}
+).json()
+
+all_channels = []
+try:
+    orgs = ch_res.get("data", {}).get("account", {}).get("organizations", [])
+    for org in orgs:
+        for ch in org.get("channels", []):
+            all_channels.append(ch)
+except Exception as e:
+    print("Channel parse exception:", e)
+
+print("Found Buffer Channels:", [(c.get("id"), c.get("name"), c.get("service")) for c in all_channels])
+
+if not all_channels:
+    raise Exception(f"No channels found in Buffer account. API response: {ch_res}")
+
+# Prefer instagram channel, else first channel
+selected_channel = next((c for c in all_channels if c.get("service") == "instagram"), all_channels[0])
+channel_id = selected_channel["id"]
+print(f"Targeting Channel: {selected_channel.get('name')} ({selected_channel.get('service')}) with ID: {channel_id}")
+
+# 3. Dynamic Model Selection with safe fallback
 models_res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}").json()
 available = [
     m["name"].replace("models/", "") for m in models_res.get("models", [])
@@ -65,7 +109,6 @@ category = str(news.get("category", "GLOBAL BUZZ")).upper()
 search_kw = str(news.get("search_keyword", "entertainment"))
 headline = str(news.get("headline", "Global Culture Update"))
 
-# Handle bullet_points whether returned as a list or string
 bullets_raw = news.get("bullet_points", "")
 if isinstance(bullets_raw, list):
     bullets = " • ".join([str(b).strip() for b in bullets_raw])
@@ -76,7 +119,7 @@ caption = str(news.get("caption", ""))
 full_caption = f"🚨 {headline}\n\n{caption}"
 print("\n--- GENERATED POST ---\n", full_caption)
 
-# 3. Vertical 4:5 Poster Design (1080x1350 px)
+# 4. Vertical 4:5 Poster Design (1080x1350 px)
 canvas = Image.new("RGB", (1080, 1350), color=(15, 17, 23))
 
 try:
@@ -114,7 +157,7 @@ draw.line([(70, 1240), (1010, 1240)], fill=(38, 42, 53), width=2)
 draw.text((70, 1265), "@thedesiculture.in", fill=(245, 158, 11))
 draw.text((810, 1265), "GLOBAL CULTURE", fill=(120, 125, 140))
 
-# 4. Image Hosting
+# 5. Image Hosting
 img_bytes = BytesIO()
 canvas.save(img_bytes, format="JPEG", quality=92)
 img_bytes.seek(0)
@@ -132,13 +175,7 @@ try:
 except Exception as e:
     print("Hosting error:", e)
 
-# 5. Buffer GraphQL API
-graphql_url = "https://api.buffer.com"
-headers = {
-    "Authorization": f"Bearer {BUFFER_TOKEN}",
-    "Content-Type": "application/json"
-}
-
+# 6. Publish via GraphQL
 mutation = """
 mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
@@ -153,7 +190,7 @@ mutation CreatePost($input: CreatePostInput!) {
 
 variables = {
     "input": {
-        "channelId": BUFFER_PROFILE_ID,
+        "channelId": channel_id,
         "text": full_caption,
         "mode": "shareNow",
         "schedulingType": "automatic",
@@ -166,8 +203,8 @@ variables = {
 }
 
 buffer_res = requests.post(
-    graphql_url,
-    headers=headers,
+    GRAPHQL_URL,
+    headers=HEADERS,
     json={"query": mutation, "variables": variables}
 )
 
