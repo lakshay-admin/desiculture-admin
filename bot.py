@@ -29,7 +29,6 @@ Return raw JSON ONLY without markdown backticks:
 }
 """
 
-# Gemini Generation Call
 gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key={GEMINI_KEY}"
 payload = {
     "contents": [{"parts": [{"text": prompt_text}]}],
@@ -67,17 +66,14 @@ except Exception as e:
 
 draw = ImageDraw.Draw(canvas)
 
-# Dark gradient transition
 for y in range(480, 750):
     alpha = int(255 * ((y - 480) / 270))
     draw.line([(0, y), (1080, y)], fill=(15, 17, 23, alpha))
 
-# Category Badge
 tag_color = (225, 29, 72) if ("ESPORTS" in category or "GAMING" in category) else (245, 158, 11)
 draw.rounded_rectangle([(60, 60), (440, 125)], radius=12, fill=tag_color)
 draw.text((85, 78), category, fill=(255, 255, 255))
 
-# Text Card Formatting
 headline_lines = textwrap.wrap(headline, width=28)
 y_offset = 770
 for line in headline_lines[:3]:
@@ -90,7 +86,6 @@ for line in bullet_lines[:4]:
     draw.text((70, y_offset), line, fill=(185, 190, 205))
     y_offset += 45
 
-# Brand Footer
 draw.line([(70, 1240), (1010, 1240)], fill=(38, 42, 53), width=2)
 draw.text((70, 1265), "@thedesiculture.in", fill=(245, 158, 11))
 draw.text((810, 1265), "GLOBAL CULTURE", fill=(120, 125, 140))
@@ -113,14 +108,13 @@ try:
 except Exception as e:
     print("Hosting error:", e)
 
-# 5. Buffer Official GraphQL API Call
-graphql_url = "https://api.bufferapp.com/graphql"
+# 5. Buffer Official GraphQL API
+graphql_url = "https://api.buffer.com"
 headers = {
     "Authorization": f"Bearer {BUFFER_TOKEN}",
     "Content-Type": "application/json"
 }
 
-# Buffer GraphQL mutation for creating an update
 mutation = """
 mutation CreatePost($input: CreatePostInput!) {
   createPost(input: $input) {
