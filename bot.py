@@ -160,6 +160,11 @@ variables = {
         "text": full_caption,
         "mode": "shareNow",
         "schedulingType": "automatic",
+        "metadata": {
+            "instagram": {
+                "type": "post"
+            }
+        },
         "assets": {
             "image": {
                 "url": img_url
