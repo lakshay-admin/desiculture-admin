@@ -233,6 +233,8 @@ mutation CreatePost($input: CreatePostInput!) {
 """
 
 INSTA_CHANNEL_ID = "6aebaa0ce29c69a171640ea0"
+TWITTER_CHANNEL_ID = "6aec3535e29c69a1716bd47b"
+FB_CHANNEL_ID = "6aed52dfe29c69a1717b8d55"
 
 for target_channel_id in CHANNEL_IDS:
     if target_channel_id == INSTA_CHANNEL_ID:
@@ -243,7 +245,15 @@ for target_channel_id in CHANNEL_IDS:
                 "shouldShareToFeed": True
             }
         }
+    elif target_channel_id == FB_CHANNEL_ID:
+        post_text = full_caption
+        meta = {
+            "facebook": {
+                "type": "post"
+            }
+        }
     else:
+        # X / Twitter
         short_caption = f"🚨 {red_tag}: {headline}\n\n#DesiCulture #PopCulture"
         post_text = short_caption[:275]
         meta = {}
